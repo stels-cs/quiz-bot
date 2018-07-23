@@ -2,8 +2,8 @@ package main
 
 import (
 	"log"
-	"github.com/stels-cs/quiz-bot/Vk"
 	"fmt"
+	"time"
 )
 
 type Service interface {
@@ -52,6 +52,8 @@ func (sp *ServicePoll) StopAll() chan bool {
 
 func (sp *ServicePoll) run(service Service) {
 	sp.logger.Println(fmt.Sprintf("[%s] is started", service.GetName()))
+	errorCount := 0
+	lastEventTime := time.Now()
 	go func() {
 		for {
 			err := service.Start()
@@ -60,7 +62,15 @@ func (sp *ServicePoll) run(service Service) {
 				sp.onStopService()
 				return
 			} else if err != nil {
-				sp.logger.Println(fmt.Sprintf("[%s] %s", service.GetName(), Vk.PrintError(err)))
+				sp.logger.Println(fmt.Sprintf("[%s] %s", service.GetName(), err.Error()))
+
+				errorCount++
+				if errorCount > 1000 {
+					panic(service.GetName() + " generate too more errors")
+				}
+				if time.Now().Sub(lastEventTime) > 10 * time.Second {
+					errorCount = 0
+				}
 			} else {
 				sp.logger.Println(fmt.Sprintf("[%s] Restarted", service.GetName()))
 			}

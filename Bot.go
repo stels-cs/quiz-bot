@@ -1,185 +1,223 @@
 package main
 
 import (
-	"github.com/stels-cs/quiz-bot/Vk"
 	"log"
 	"fmt"
 	"sync"
 	"strconv"
+	"github.com/stels-cs/vk-api-tools"
+	"strings"
 )
 
-const helpMessage = `Я — бот для игры в квиз.
+const helpMessageTmp = `Я — бот для игры в квиз.
 
-Отправь мне заявку в друзья, и я автоматически её приму. Затем добавляй меня в чатик с друзьями и играй.
+Разреши мне читать все сообщения в этой беседе чтобы начать играть
 
-Список команд:
-бот начать – начать игру.
-бот стоп – завершить игру (игра завершается автоматически, если в течение 3 вопросов в чате не было ни одного сообщения).
-бот рейтинг – показать топ-10 пользователей по количеству правильных ответов.
-бот помощь – это сообщение.
-
-Если бот не отвечает, то введите капчу тут %s
+Команды: 
+@%s %s
+@%s %s
+@%s %s
 `
-
-const TestPeerId = 2000000001
+const startGameCommand = `начать игру`
+const stopGameCommand = `закончить игру`
+const topCommand = `рейтинг`
 
 type Bot struct {
-	Vk.LongPollDefaultListener
-	logger            *log.Logger
-	token             Vk.AccessToken
-	MyId              int
-	Games             map[int]*Game
-	db                *QuestionPoll
-	top               *Top
-	userPoll          *UserPoll
-	stopMutex         *sync.Mutex
-	restoreUrl        string
-	stop              chan bool
-	api               *Vk.Api
-	lpServer          *Vk.LongPollServer
-	captcha           map[int]bool
-	deleteGameChan    chan int
-	captchaReportChan chan int
-	TestMode          bool
-	queue             *Vk.RequestQueue
-	lastLsId	int
+	logger         *log.Logger
+	MyId           int
+	Games          map[int]*Game
+	db             *QuestionPoll
+	top            *Top
+	userPoll       *UserPoll
+	stopMutex      *sync.Mutex
+	stop           chan bool
+	captcha        map[int]bool
+	deleteGameChan chan int
+	TestMode       bool
+	queue          *VkApi.RequestQueue
+	lastLsId       int
+	screenName     string
+	groupId        int
+	env            string
 }
 
-func GetNewBot(lpServer *Vk.LongPollServer, queue *Vk.RequestQueue, myId int, logger *log.Logger, poll *QuestionPoll, top *Top, up *UserPoll, restoreUrl string, test bool) Bot {
+func GetNewBot(queue *VkApi.RequestQueue, logger *log.Logger, poll *QuestionPoll, top *Top, up *UserPoll, name string, id int, enviroment string) Bot {
 	b := Bot{
-		logger:            logger,
-		lpServer:          lpServer,
-		MyId:              myId,
-		Games:             map[int]*Game{},
-		db:                poll,
-		top:               top,
-		userPoll:          up,
-		stopMutex:         &sync.Mutex{},
-		restoreUrl:        restoreUrl,
-		stop:              make(chan bool, 1),
-		deleteGameChan:    make(chan int, 10),
-		captchaReportChan: make(chan int, 10),
-		captcha:           map[int]bool{},
-		TestMode:          test,
-		queue:             queue,
+		logger:         logger,
+		Games:          map[int]*Game{},
+		db:             poll,
+		top:            top,
+		userPoll:       up,
+		stopMutex:      &sync.Mutex{},
+		stop:           make(chan bool, 1),
+		deleteGameChan: make(chan int, 10),
+		captcha:        map[int]bool{},
+		queue:          queue,
+		screenName:     name,
+		groupId:        id,
+		env:            enviroment,
 	}
-	lpServer.SetListener(&b)
 	return b
 }
 
-func (bot *Bot) NewMessage(msg Vk.MessageEvent) {
-	if msg.From == 0 {
-		if bot.lastLsId != msg.PeerId {
-			bot.lastLsId = msg.PeerId
-			bot.Say(msg.PeerId, "Я работаю только в беседах, добавь меня в беседу.")
-		}
-		return
+func (bot *Bot) GetHelpMessage() string {
+	return fmt.Sprintf(helpMessageTmp,
+		bot.screenName, startGameCommand,
+		bot.screenName, stopGameCommand,
+		bot.screenName, topCommand,
+	)
+}
+
+func (bot *Bot) IsMeMention(text string) bool {
+
+	if strings.Index(text, "["+bot.screenName+"|") == 0 {
+		return true
 	}
-	if msg.From == bot.MyId || msg.From == 0 {
+
+	if strings.Index(text, "[public"+strconv.Itoa(bot.groupId)+"|") == 0 {
+		return true
+	}
+
+	if strings.Index(text, "[club"+strconv.Itoa(bot.groupId)+"|") == 0 {
+		return true
+	}
+
+	if strings.Index(text, "[event"+strconv.Itoa(bot.groupId)+"|") == 0 {
+		return true
+	}
+
+	return false
+}
+
+func (bot *Bot) IsStartMessage(text string) bool {
+	ptr := []string{startGameCommand, "го", "go", "играть", "начать", "yfxfnm buhe"}
+	if strings.Index(text, "[") != 0 {
+		return false
+	}
+	i := strings.Index(text, "]")
+	for _, word := range ptr {
+		if i != -1 && strings.Index(text, word) >= i {
+			return true
+		}
+	}
+	return false
+}
+
+func (bot *Bot) IsStopMessage(text string) bool {
+	ptr := []string{stopGameCommand, "stop", "стоп", "stop", "pfrjyxbnm buhe"}
+	if strings.Index(text, "[") != 0 {
+		return false
+	}
+	i := strings.Index(text, "]")
+	for _, word := range ptr {
+		if i != -1 && strings.Index(text, word) >= i {
+			return true
+		}
+	}
+	return false
+}
+
+func (bot *Bot) IsTopMessage(text string) bool {
+	ptr := []string{topCommand, "победители", "htqnbyu"}
+	if strings.Index(text, "[") != 0 {
+		return false
+	}
+	for _, word := range ptr {
+		if strings.Index(text, word) != -1 {
+			return true
+		}
+	}
+	return false
+}
+
+func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
+	isDialog := msg.PeerId > 2e9
+	userId := msg.PeerId
+
+	if !isDialog {
+		if bot.lastLsId != userId {
+			bot.lastLsId = userId
+			bot.Say(userId, "Я работаю только в беседах, добавь меня в беседу.")
+		}
 		return
 	}
 
-	if bot.TestMode && msg.PeerId != TestPeerId {
-		return
-	} else if !bot.TestMode && msg.PeerId == TestPeerId {
+	if msg.Out == 1 {
 		return
 	}
 
-	if msg.ChatInviteUser != nil && msg.ChatInviteUser.User == bot.MyId {
-		bot.logger.Printf(fmt.Sprintf("Invite to chat by id%d", msg.From))
-		bot.Say(msg.PeerId, fmt.Sprintf(helpMessage, bot.restoreUrl))
-	} else if msg.ChatKilUser != nil && msg.ChatKilUser.User == bot.MyId {
-		bot.logger.Printf(fmt.Sprintf("Kick from chat by id%d", msg.From))
-		if game, ok := bot.Games[msg.PeerId]; ok == true {
-			game.Stop(false)
-		}
-	} else if inArray([]string{"бот помощ", "бот помощь", "бот помошь", "бот хелп", "бот help", "/help", "!help", "bot help", "bot /help", "bot !help"}, trimAndLower(msg.Text)) {
-		bot.Say(msg.PeerId, fmt.Sprintf(helpMessage, bot.restoreUrl))
-	} else if inArray([]string{"бот начать", "го квиз", "бот старт"}, trimAndLower(msg.Text)) {
-		if _, ok := bot.Games[msg.PeerId]; ok == false {
-			game := GetNewGame(msg.PeerId, bot.queue, bot.db, bot.top, bot.userPoll, bot.logger)
-			bot.Games[ msg.PeerId ] = game
-			go func() {
-				correctStop := game.Start(bot.restoreUrl)
-				if !correctStop {
-					bot.captchaReportChan <- game.peerId
-				}
-				bot.deleteGameChan <- game.peerId
-			}()
-			bot.logger.Printf(fmt.Sprintf("Start game by id%d", msg.From))
-		}
-	} else if inArray([]string{"бот стоп", "bot stop",}, trimAndLower(msg.Text)) {
-		if game, ok := bot.Games[msg.PeerId]; ok && game != nil {
-			game.Stop(true)
-			bot.logger.Printf(fmt.Sprintf("Stop game by id%d", msg.From))
-		}
-	} else if inArray([]string{"бот рейтинг", "бот топ"}, trimAndLower(msg.Text)) {
-		bot.Say(msg.PeerId, bot.GetTopString())
-	} else if inArray([]string{"captcha.force"}, trimAndLower(msg.Text)) && bot.TestMode {
-		bot.logger.Println("captcha.force")
-		bot.CaptchaForce(msg.PeerId)
-	} else {
-		if g, ok := bot.Games[msg.PeerId]; ok {
-			g.Message(&msg)
+	if bot.IsMeMention(trimAndLower(msg.Text)) {
+		if bot.IsStartMessage(trimAndLower(msg.Text)) {
+			if _, ok := bot.Games[userId]; ok == false {
+				game := GetNewGame(userId, bot.queue, bot.db, bot.top, bot.userPoll, bot.logger)
+				bot.Games[ userId ] = game
+				go func() {
+					game.Start()
+					bot.deleteGameChan <- game.peerId
+				}()
+				bot.logger.Printf(fmt.Sprintf("Start game by id%d", userId))
+			}
+		} else if bot.IsStopMessage(trimAndLower(msg.Text)) {
+			if game, ok := bot.Games[userId]; ok && game != nil {
+				game.Stop(true)
+				bot.logger.Printf(fmt.Sprintf("Stop game by id%d", userId))
+			}
+		} else if bot.IsTopMessage(trimAndLower(msg.Text)) {
+			bot.Say(userId, bot.GetTopString())
 		} else {
-			//bot.logger.Printf("%+v\n", msg)
+			bot.Say(userId, bot.GetHelpMessage())
+		}
+	} else {
+		if g, ok := bot.Games[userId]; ok {
+			g.Message(msg)
 		}
 	}
 }
 
 func (bot *Bot) Say(peerId int, message string) {
 	go func() {
-		r := <-bot.queue.Call(Vk.GetApiMethod("messages.send", Vk.Params{
+		r := <-bot.queue.Call(VkApi.GetApiMethod("messages.send", VkApi.P{
 			"peer_id": strconv.Itoa(peerId),
 			"message": message,
 		}))
 		if r.Err != nil {
-			bot.logger.Println(Vk.PrintError(r.Err))
-			if apiErr, ok := r.Err.(*Vk.ApiError); ok && apiErr.Code == Vk.ApiErrorCaptcha {
-				bot.captchaReportChan <- peerId
-			}
+			bot.logger.Println(r.Err.Error())
 		}
 	}()
-}
-
-func (bot *Bot) CaptchaForce(peerId int) {
-	go func() {
-		r := <-bot.queue.Call(Vk.GetApiMethod("captcha.force", Vk.Params{}))
-		if r.Err != nil {
-			bot.logger.Println(Vk.PrintError(r.Err))
-			if apiErr, ok := r.Err.(*Vk.ApiError); ok && apiErr.Code == Vk.ApiErrorCaptcha {
-				bot.captchaReportChan <- peerId
-			}
-		}
-	}()
-}
-
-func (bot *Bot) EditMessage(msg Vk.MessageEvent) {
-	bot.NewMessage(msg)
 }
 
 func (bot *Bot) Start() error {
 	go bot.queue.Start()
-	go bot.lpServer.Start()
 	for {
 		select {
 		case <-bot.stop:
 			return nil
 		case peerId := <-bot.deleteGameChan:
 			delete(bot.Games, peerId)
-		case peerId := <-bot.captchaReportChan:
-			if peerId == -1 {
-				bot.captchaRecover()
-			} else {
-				bot.captcha[peerId] = true
-			}
 		}
+	}
+}
+
+func (bot *Bot) onEvent(event *VkApi.CallbackEvent) {
+	if event.IsMessage() {
+		msg, err := event.GetMessage()
+		if err != nil {
+			bot.logger.Println("Cant get message from event: " + err.Error())
+			bot.logger.Println(string(event.Object))
+			return
+		}
+		if bot.env != "production" {
+			bot.logger.Println(string(event.Object))
+		}
+		bot.NewMessage(msg)
+	} else {
+		bot.logger.Println("Event: " + event.Type)
+		bot.logger.Println(string(event.Object))
 	}
 }
 
 func (bot *Bot) Stop() {
 	bot.queue.Stop()
-	bot.lpServer.Stop()
 	bot.stop <- true
 }
 
@@ -207,17 +245,6 @@ func (bot *Bot) GetTopString() string {
 	}
 
 	return str
-}
-
-func (bot *Bot) OnCaptchaRecover() {
-	bot.captchaReportChan <- -1
-}
-
-func (bot *Bot) captchaRecover() {
-	for peerId := range bot.captcha {
-		bot.Say(peerId, "Бот не отвечал из-за капчи, но теперь все хорошо, скажи \"го квиз\" и поиграем")
-	}
-	bot.captcha = map[int]bool{}
 }
 
 func (bot *Bot) GetName() string {

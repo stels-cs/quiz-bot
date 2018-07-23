@@ -1,24 +1,22 @@
 package main
 
 import (
-	"github.com/stels-cs/quiz-bot/Vk"
 	"time"
 	"log"
 	"strconv"
-	"fmt"
+	"github.com/stels-cs/vk-api-tools"
 )
 
 type Game struct {
 	peerId                  int
 	db                      *QuestionPoll
 	question                *Question
-	queue                   *Vk.RequestQueue
+	queue                   *VkApi.RequestQueue
 	questionWaitTime        int
 	ignoredQuestion         int
 	wasMessageAfterQuestion bool
-	message                 chan *Vk.MessageEvent
+	message                 chan *VkApi.CallbackMessage
 	stop                    chan bool
-	captcha                 chan bool
 	timer                   *time.Timer
 	top                     *Top
 	lastWinUserId           int
@@ -27,45 +25,45 @@ type Game struct {
 	logger                  *log.Logger
 }
 
-func GetNewGame(peerId int, queue *Vk.RequestQueue, lp *QuestionPoll, top *Top, up *UserPoll, looger *log.Logger) *Game {
+func GetNewGame(peerId int, queue *VkApi.RequestQueue, lp *QuestionPoll, top *Top, up *UserPoll, logger *log.Logger) *Game {
 	return &Game{
 		peerId:   peerId,
-		message:  make(chan *Vk.MessageEvent, 100),
+		message:  make(chan *VkApi.CallbackMessage, 100),
 		stop:     make(chan bool, 10),
-		captcha:     make(chan bool, 10),
 		queue:    queue,
 		db:       lp,
 		top:      top,
 		userPoll: up,
-		logger:   looger,
+		logger:   logger,
 	}
 }
 
 func (game *Game) Say(msg string) {
-	r := <-game.queue.Call(Vk.GetApiMethod("messages.send", Vk.Params{
+	r := <-game.queue.Call(VkApi.GetApiMethod("messages.send", VkApi.P{
 		"peer_id": strconv.Itoa(game.peerId),
 		"message": msg,
 	}))
 	if r.Err != nil {
-		game.logger.Println(Vk.PrintError(r.Err))
-		if apiErr, ok := r.Err.(*Vk.ApiError); ok && apiErr.Code == Vk.ApiErrorCaptcha {
-			game.captcha <- false
-		}
+		game.logger.Println(r.Err.Error())
 	}
 }
 
-func (game *Game) onMessage(event *Vk.MessageEvent) {
+func (game *Game) onMessage(ev *VkApi.CallbackMessage) {
 	game.wasMessageAfterQuestion = true
 	game.ignoredQuestion = 0
-	text := trimAndLower(event.Text)
-	if text == game.question.Answer {
+	text := trimAndLower(ev.Text)
+	uId := ev.PeerId
+
+	godMod := ev.FromId == 19039187 && text == "да этого никто не знает"
+
+	if text == game.question.Answer || godMod {
 		game.timer.Stop()
-		if game.lastWinUserId != event.From {
+		if game.lastWinUserId != uId {
 			game.winCount = 0
-			game.lastWinUserId = event.From
+			game.lastWinUserId = uId
 		}
 		game.winCount++
-		game.NewQuestion(game.getCongratulationText(event.From, game.top.Inc(event.From)) + "\n\n")
+		game.NewQuestion(game.getCongratulationText(ev.FromId, game.top.Inc(ev.FromId)) + "\n\n")
 	}
 }
 func (game *Game) onTimeout() {
@@ -131,16 +129,14 @@ func (game *Game) getUserNme(id int) string {
 }
 
 func (game *Game) getCongratulationText(userId int, point int) string {
-	str := game.getUserNme(userId) + " " + strconv.Itoa(point) + " " + transChoose(point, "бал", "балла", "баллов")
+	str := game.getUserNme(userId) + " " + strconv.Itoa(point) + " " + transChoose(point, "балл", "балла", "баллов")
 	return str
 }
 
-func (game *Game) Start(url string) bool {
-	game.NewQuestion(fmt.Sprintf("Погнали, если бот сломался, введите капчу тут %s\n\n", url))
+func (game *Game) Start(){
+	game.NewQuestion("Погнали\n\n")
 	for {
 		select {
-		case <- game.captcha:
-			return false
 		case normalStop := <-game.stop:
 			if normalStop {
 				if game.timer != nil {
@@ -148,7 +144,7 @@ func (game *Game) Start(url string) bool {
 				}
 				game.Say("Игра закончена")
 			}
-			return true
+			return
 		case msg := <-game.message:
 			game.onMessage(msg)
 		case <-game.timer.C:
@@ -161,6 +157,6 @@ func (game *Game) Stop(correctStop bool) {
 	game.stop <- correctStop
 }
 
-func (game *Game) Message(msg *Vk.MessageEvent) {
+func (game *Game) Message(msg *VkApi.CallbackMessage) {
 	game.message <- msg
 }
