@@ -88,7 +88,7 @@ func (game *Game) NewQuestion(prefix string) {
 	game.questionWaitTime = 0
 	game.wasMessageAfterQuestion = false
 	game.question = game.db.GetQuestion()
-	game.onSay(prefix + game.question.Text + "\n" + game.getAnswerView() + " " + game.question.Answer)
+	game.onSay(prefix + game.question.Text + "\n" + game.getAnswerView())
 	if game.timer == nil {
 		game.timer = time.NewTimer(10 * time.Second)
 	} else {
@@ -123,7 +123,10 @@ func (game *Game) getAnswerView() string {
 			o += " *"
 		}
 	}
-	return o
+
+	b := transChoose(len(answer), "буква", "буквы", "букв")
+
+	return o + "  " + strconv.Itoa(len(answer)) + " " + b
 }
 
 func (game *Game) getUserNme(id int) string {
