@@ -326,7 +326,14 @@ func (bot *Bot) onEvent(event *VkApi.CallbackEvent) {
 }
 
 func (bot *Bot) Stop() {
+
+	for peerId := range bot.Games {
+		bot.Say(peerId, "Игра прервана потому что мы обновлем бота, пожалуйста, напишите боту через несколько секунд.")
+	}
+
+	time.Sleep(1 * time.Second)
 	bot.queue.Stop()
+	time.Sleep(1 * time.Second)
 	bot.stop <- true
 }
 
