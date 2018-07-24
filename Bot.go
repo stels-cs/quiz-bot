@@ -1,19 +1,22 @@
 package main
 
 import (
-	"log"
+	"encoding/json"
 	"fmt"
-	"sync"
-	"strconv"
 	"github.com/stels-cs/vk-api-tools"
+	"log"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
-const helpMessageTmp = `Я — бот для игры в квиз.
+const helpMessageTmp = `Я – бот для игры в квиз.
 
-Разреши мне читать все сообщения в этой беседе чтобы начать играть
+Разреши мне читать все сообщения в этой беседе, чтобы начать играть. А как это сделать и как вообще играть прочитай вот тут: vk.com/@vikobot-bot
 
-Команды: 
+Команды:
+@%s %s
 @%s %s
 @%s %s
 @%s %s
@@ -21,6 +24,7 @@ const helpMessageTmp = `Я — бот для игры в квиз.
 const startGameCommand = `начать игру`
 const stopGameCommand = `закончить игру`
 const topCommand = `рейтинг`
+const helpCommand = `помощь`
 
 type Bot struct {
 	logger         *log.Logger
@@ -39,6 +43,14 @@ type Bot struct {
 	screenName     string
 	groupId        int
 	env            string
+
+	maxPeerId          int
+	msgCount           int
+	floodCount         int
+	gotQuestionCount   int
+	totalQuestionCount int
+	totalGameCount     int
+	startTime          time.Time
 }
 
 func GetNewBot(queue *VkApi.RequestQueue, logger *log.Logger, poll *QuestionPoll, top *Top, up *UserPoll, name string, id int, enviroment string) Bot {
@@ -56,6 +68,9 @@ func GetNewBot(queue *VkApi.RequestQueue, logger *log.Logger, poll *QuestionPoll
 		screenName:     name,
 		groupId:        id,
 		env:            enviroment,
+		startTime:      time.Now(),
+		maxPeerId:      2e9,
+		msgCount:       0,
 	}
 	return b
 }
@@ -65,6 +80,7 @@ func (bot *Bot) GetHelpMessage() string {
 		bot.screenName, startGameCommand,
 		bot.screenName, stopGameCommand,
 		bot.screenName, topCommand,
+		bot.screenName, helpCommand,
 	)
 }
 
@@ -132,12 +148,24 @@ func (bot *Bot) IsTopMessage(text string) bool {
 
 func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
 	isDialog := msg.PeerId > 2e9
-	userId := msg.PeerId
+	peerId := msg.PeerId
+	bot.msgCount++
+	if peerId > bot.maxPeerId {
+		bot.maxPeerId = peerId
+	}
+
+	if msg.PeerId == 2000000004 && bot.env == "production" {
+		return
+	}
+
+	if msg.PeerId != 2000000004 && bot.env != "production" {
+		return
+	}
 
 	if !isDialog {
-		if bot.lastLsId != userId {
-			bot.lastLsId = userId
-			bot.Say(userId, "Я работаю только в беседах, добавь меня в беседу.")
+		if bot.lastLsId != peerId {
+			bot.lastLsId = peerId
+			bot.SayNoKbd(peerId, "Я работаю только в беседах, добавь меня в беседу.")
 		}
 		return
 	}
@@ -148,33 +176,111 @@ func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
 
 	if bot.IsMeMention(trimAndLower(msg.Text)) {
 		if bot.IsStartMessage(trimAndLower(msg.Text)) {
-			if _, ok := bot.Games[userId]; ok == false {
-				game := GetNewGame(userId, bot.queue, bot.db, bot.top, bot.userPoll, bot.logger)
-				bot.Games[ userId ] = game
+			if _, ok := bot.Games[peerId]; ok == false {
+				game := GetNewGame(peerId, bot.db, bot.top, bot.userPoll, bot.logger, bot.screenName)
+				bot.Games[peerId] = game
+				game.onSay = func(msg string) {
+					bot.SayStopKbd(peerId, msg)
+				}
+				game.onEnd = func(msg string) {
+					bot.Say(peerId, msg)
+				}
+				game.onQuestionGot = func() {
+					bot.gotQuestionCount++
+				}
+				game.onQuestion = func() {
+					bot.totalQuestionCount++
+				}
 				go func() {
 					game.Start()
 					bot.deleteGameChan <- game.peerId
 				}()
-				bot.logger.Printf(fmt.Sprintf("Start game by id%d", userId))
+				bot.logger.Printf(fmt.Sprintf("Start game by id%d", peerId))
+				bot.totalGameCount++
 			}
 		} else if bot.IsStopMessage(trimAndLower(msg.Text)) {
-			if game, ok := bot.Games[userId]; ok && game != nil {
+			if game, ok := bot.Games[peerId]; ok && game != nil {
 				game.Stop(true)
-				bot.logger.Printf(fmt.Sprintf("Stop game by id%d", userId))
+				bot.logger.Printf(fmt.Sprintf("Stop game by id%d", peerId))
 			}
+		} else if strings.Index(trimAndLower(msg.Text), "bstat") != -1 {
+			bot.Say(peerId, fmt.Sprintf(`Stat:
+Total message: %d
+Total questions: %d (%d)
+Flood control: %d
+Dialog count: %d
+Games count: %d
+Start at: %s
+`,
+				bot.msgCount,
+				bot.totalQuestionCount,
+				bot.gotQuestionCount,
+				bot.floodCount,
+				bot.maxPeerId-2e9,
+				bot.totalGameCount,
+				bot.startTime.Format("Mon Jan _2 15:04:05")))
 		} else if bot.IsTopMessage(trimAndLower(msg.Text)) {
-			bot.Say(userId, bot.GetTopString())
+			bot.Say(peerId, bot.GetTopString())
 		} else {
-			bot.Say(userId, bot.GetHelpMessage())
+			bot.Say(peerId, bot.GetHelpMessage())
 		}
 	} else {
-		if g, ok := bot.Games[userId]; ok {
-			g.Message(msg)
+		if g, ok := bot.Games[peerId]; ok {
+			g.Message(msg.FromId, msg.Text)
 		}
 	}
 }
 
+func (bot *Bot) SayKBD(peerId int, message string, kdb *Keyboard) {
+	go func() {
+
+		rawKbd, err := json.Marshal(kdb)
+		if err != nil {
+			bot.logger.Println(err)
+			return
+		}
+
+		r := <-bot.queue.Call(VkApi.GetApiMethod("messages.send", VkApi.P{
+			"peer_id":  strconv.Itoa(peerId),
+			"message":  message,
+			"keyboard": string(rawKbd),
+		}))
+		if r.Err != nil {
+			bot.logger.Println(r.Err.Error())
+			if strings.Index(r.Err.Error(), "Flood control") != -1 {
+				bot.floodCount++
+			}
+		}
+	}()
+}
+
 func (bot *Bot) Say(peerId int, message string) {
+	go func() {
+
+		keyboard, err := GetDefaultKbd()
+		if err != nil {
+			bot.logger.Println(err)
+			return
+		}
+
+		bot.SayKBD(peerId, message, keyboard)
+	}()
+}
+
+func (bot *Bot) SayStopKbd(peerId int, message string) {
+	go func() {
+
+		keyboard, err := GetStopKbd()
+		if err != nil {
+			bot.logger.Println(err)
+			return
+		}
+
+		bot.SayKBD(peerId, message, keyboard)
+	}()
+}
+
+func (bot *Bot) SayNoKbd(peerId int, message string) {
 	go func() {
 		r := <-bot.queue.Call(VkApi.GetApiMethod("messages.send", VkApi.P{
 			"peer_id": strconv.Itoa(peerId),
@@ -182,6 +288,9 @@ func (bot *Bot) Say(peerId int, message string) {
 		}))
 		if r.Err != nil {
 			bot.logger.Println(r.Err.Error())
+		}
+		if strings.Index(r.Err.Error(), "Flood control") != -1 {
+			bot.floodCount++
 		}
 	}()
 }
@@ -236,7 +345,11 @@ func (bot *Bot) GetTopString() string {
 
 	for i := 0; i < 10; i++ {
 		if top[i][1] > 0 {
-			str += fmt.Sprintf("%d %s – %s\n", top[i][0], transChoose(top[i][0], "балл", "балла", "баллов"), users[top[i][1]].FirstName+" "+users[top[i][1]].LastName)
+			str += fmt.Sprintf(
+				"%d %s – @id%d (%s %s)\n",
+				top[i][0],
+				transChoose(top[i][0], "балл", "балла", "баллов"),
+				users[top[i][1]].Id, users[top[i][1]].FirstName, users[top[i][1]].LastName)
 		}
 	}
 

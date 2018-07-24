@@ -1,71 +1,73 @@
 package main
 
 import (
-	"time"
 	"log"
 	"strconv"
-	"github.com/stels-cs/vk-api-tools"
+	"time"
 )
+
+type GameMessage struct {
+	UserId int
+	Text   string
+}
 
 type Game struct {
 	peerId                  int
 	db                      *QuestionPoll
 	question                *Question
-	queue                   *VkApi.RequestQueue
 	questionWaitTime        int
 	ignoredQuestion         int
 	wasMessageAfterQuestion bool
-	message                 chan *VkApi.CallbackMessage
-	stop                    chan bool
-	timer                   *time.Timer
-	top                     *Top
-	lastWinUserId           int
-	winCount                int
-	userPoll                *UserPoll
-	logger                  *log.Logger
+
+	message       chan *GameMessage
+	stop          chan bool
+	timer         *time.Timer
+	top           *Top
+	lastWinUserId int
+	winCount      int
+	userPoll      *UserPoll
+	logger        *log.Logger
+	name          string
+
+	onSay func(msg string)
+	onEnd func(msg string)
+
+	onQuestionGot func()
+	onQuestion    func()
 }
 
-func GetNewGame(peerId int, queue *VkApi.RequestQueue, lp *QuestionPoll, top *Top, up *UserPoll, logger *log.Logger) *Game {
+func GetNewGame(peerId int, lp *QuestionPoll, top *Top, up *UserPoll, logger *log.Logger, name string) *Game {
 	return &Game{
 		peerId:   peerId,
-		message:  make(chan *VkApi.CallbackMessage, 100),
+		message:  make(chan *GameMessage, 100),
 		stop:     make(chan bool, 10),
-		queue:    queue,
 		db:       lp,
 		top:      top,
 		userPoll: up,
 		logger:   logger,
+		name:     name,
 	}
 }
 
-func (game *Game) Say(msg string) {
-	r := <-game.queue.Call(VkApi.GetApiMethod("messages.send", VkApi.P{
-		"peer_id": strconv.Itoa(game.peerId),
-		"message": msg,
-	}))
-	if r.Err != nil {
-		game.logger.Println(r.Err.Error())
-	}
-}
-
-func (game *Game) onMessage(ev *VkApi.CallbackMessage) {
+func (game *Game) onMessage(userId int, text string) {
 	game.wasMessageAfterQuestion = true
 	game.ignoredQuestion = 0
-	text := trimAndLower(ev.Text)
-	uId := ev.PeerId
+	text = trimAndLower(text)
 
-	godMod := ev.FromId == 19039187 && text == "да этого никто не знает"
+	godMod := userId == 19039187 && text == "да этого никто не знает"
 
-	if text == game.question.Answer || godMod {
+	if text == game.question.Answer || godMod || DistanceForStrings([]rune(text), []rune(game.question.Answer)) == 1 {
+		game.onQuestionGot()
 		game.timer.Stop()
-		if game.lastWinUserId != uId {
+		if game.lastWinUserId != userId {
 			game.winCount = 0
-			game.lastWinUserId = uId
+			game.lastWinUserId = userId
 		}
 		game.winCount++
-		game.NewQuestion(game.getCongratulationText(ev.FromId, game.top.Inc(ev.FromId)) + "\n\n")
+		game.NewQuestion(game.getCongratulationText(userId, game.top.Inc(userId), text == game.question.Answer) + "\n\n")
 	}
 }
+
 func (game *Game) onTimeout() {
 	if game.questionWaitTime == 0 {
 		game.questionWaitTime = 1
@@ -77,15 +79,16 @@ func (game *Game) onTimeout() {
 	if game.questionWaitTime > 3 || game.questionWaitTime > len(game.question.Answer)-1 {
 		game.onUnAnswerQuestion()
 	} else {
-		game.Say(game.getAnswerView())
+		game.onSay(game.getAnswerView())
 		game.timer.Reset(10 * time.Second)
 	}
 }
 func (game *Game) NewQuestion(prefix string) {
+	game.onQuestion()
 	game.questionWaitTime = 0
 	game.wasMessageAfterQuestion = false
 	game.question = game.db.GetQuestion()
-	game.Say(prefix + game.question.Text + "\n" + game.getAnswerView())
+	game.onSay(prefix + game.question.Text + "\n" + game.getAnswerView() + " " + game.question.Answer)
 	if game.timer == nil {
 		game.timer = time.NewTimer(10 * time.Second)
 	} else {
@@ -128,12 +131,15 @@ func (game *Game) getUserNme(id int) string {
 	return u[id].FirstName + " " + u[id].LastName + ff(u[id].Sex == 1, " права, у неё уже", " прав, у него уже")
 }
 
-func (game *Game) getCongratulationText(userId int, point int) string {
+func (game *Game) getCongratulationText(userId int, point int, fullMath bool) string {
 	str := game.getUserNme(userId) + " " + strconv.Itoa(point) + " " + transChoose(point, "балл", "балла", "баллов")
+	if !fullMath {
+		str = game.question.Answer + "\n" + str
+	}
 	return str
 }
 
-func (game *Game) Start(){
+func (game *Game) Start() {
 	game.NewQuestion("Погнали\n\n")
 	for {
 		select {
@@ -142,11 +148,11 @@ func (game *Game) Start(){
 				if game.timer != nil {
 					game.timer.Stop()
 				}
-				game.Say("Игра закончена")
+				game.onEnd("Игра закончена")
 			}
 			return
 		case msg := <-game.message:
-			game.onMessage(msg)
+			game.onMessage(msg.UserId, msg.Text)
 		case <-game.timer.C:
 			game.onTimeout()
 		}
@@ -157,6 +163,6 @@ func (game *Game) Stop(correctStop bool) {
 	game.stop <- correctStop
 }
 
-func (game *Game) Message(msg *VkApi.CallbackMessage) {
-	game.message <- msg
+func (game *Game) Message(userId int, text string) {
+	game.message <- &GameMessage{UserId: userId, Text: text}
 }

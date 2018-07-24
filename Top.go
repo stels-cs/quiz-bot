@@ -1,12 +1,12 @@
 package main
 
 import (
-	"os"
 	"bufio"
-	"strings"
-	"strconv"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -16,11 +16,11 @@ type Top struct {
 	logger     *log.Logger
 	lockSave   bool
 	writeMutex *sync.Mutex
-	saveMutex *sync.Mutex
+	saveMutex  *sync.Mutex
 }
 
 func GetTop(fName string, logger *log.Logger) Top {
-	return Top{map[int]int{}, fName, logger, false, &sync.Mutex{}, &sync.Mutex{} }
+	return Top{map[int]int{}, fName, logger, false, &sync.Mutex{}, &sync.Mutex{}}
 }
 
 func (top *Top) Load() error {
@@ -78,7 +78,7 @@ func (top *Top) Inc(userId int) int {
 	}
 	top.writeMutex.Unlock()
 
-	if top.lockSave {
+	if top.lockSave == false {
 		go top.SaveWithLock()
 	}
 	return top.data[userId]
@@ -94,23 +94,23 @@ func insertIntoRating(arr *[10][2]int, startAt int, rating int, id int) {
 	arr[startAt][1] = id
 }
 
-func (top *Top) GetTop10() [10][2]int  {
+func (top *Top) GetTop10() [10][2]int {
 	list := [10][2]int{
-		{0,0},
-		{0,0},
-		{0,0},
-		{0,0},
-		{0,0},
-		{0,0},
-		{0,0},
-		{0,0},
-		{0,0},
-		{0,0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
 	}
 
 	for userId, rating := range top.data {
 		if rating > list[9][0] {
-			for i:=0; i < 10; i++ {
+			for i := 0; i < 10; i++ {
 				if list[i][0] < rating {
 					insertIntoRating(&list, i, rating, userId)
 					break
