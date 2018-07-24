@@ -124,9 +124,12 @@ func (game *Game) getAnswerView() string {
 		}
 	}
 
-	b := transChoose(len(answer), "буква", "буквы", "букв")
-
-	return o + "  " + strconv.Itoa(len(answer)) + " " + b
+	if openChars == 0 {
+		b := transChoose(len(answer), "буква", "буквы", "букв")
+		return o + "  " + strconv.Itoa(len(answer)) + " " + b
+	} else {
+		return o
+	}
 }
 
 func (game *Game) getUserNme(id int) string {
