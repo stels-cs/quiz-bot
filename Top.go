@@ -12,6 +12,7 @@ import (
 
 type Top struct {
 	data       map[int]int
+	fast       map[int]int
 	fName      string
 	logger     *log.Logger
 	lockSave   bool
@@ -20,7 +21,14 @@ type Top struct {
 }
 
 func GetTop(fName string, logger *log.Logger) Top {
-	return Top{map[int]int{}, fName, logger, false, &sync.Mutex{}, &sync.Mutex{}}
+	return Top{
+		map[int]int{},
+		map[int]int{},
+		fName,
+		logger,
+		false,
+		&sync.Mutex{},
+		&sync.Mutex{}}
 }
 
 func (top *Top) Load() error {
@@ -84,6 +92,21 @@ func (top *Top) Inc(userId int) int {
 	return top.data[userId]
 }
 
+func (top *Top) Clear(userId int) {
+	top.writeMutex.Lock()
+	_, ok := top.data[userId]
+	if ok {
+		top.data[userId] = 0
+	}
+
+	_, fok := top.fast[userId]
+	if fok {
+		delete(top.fast, userId)
+	}
+
+	top.writeMutex.Unlock()
+}
+
 func insertIntoRating(arr *[10][2]int, startAt int, rating int, id int) {
 	for i := 8; i >= startAt; i-- {
 		arr[i+1][0] = arr[i][0]
@@ -130,4 +153,36 @@ func (top *Top) SaveWithLock() {
 	}
 	top.lockSave = false
 	top.saveMutex.Unlock()
+}
+
+func (top *Top) FastUser(id int) {
+	top.writeMutex.Lock()
+	_, ok := top.fast[id]
+	if ok {
+		top.fast[id]++
+	} else {
+		top.fast[id] = 1
+	}
+	top.writeMutex.Unlock()
+}
+
+func (top *Top) GetFastUsers() string {
+	max := 0
+	id := 0
+
+	top.writeMutex.Lock()
+	for uid, count := range top.fast {
+		if count > max {
+			max = count
+			id = uid
+		}
+	}
+	top.writeMutex.Unlock()
+
+	if max > 0 {
+		return fmt.Sprintf(`@id%d -- %d`, id, max)
+	} else {
+		return ""
+	}
+
 }

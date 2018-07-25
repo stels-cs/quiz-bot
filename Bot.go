@@ -26,6 +26,9 @@ const stopGameCommand = `закончить игру`
 const topCommand = `рейтинг`
 const helpCommand = `помощь`
 
+const DevChatId = 2000000004
+const INUserId = 19039187
+
 type Bot struct {
 	logger         *log.Logger
 	MyId           int
@@ -146,6 +149,20 @@ func (bot *Bot) IsTopMessage(text string) bool {
 	return false
 }
 
+func (bot *Bot) IsCommand(text string, command string) bool {
+	ptr := []string{command}
+	if strings.Index(text, "[") != 0 {
+		return false
+	}
+	i := strings.Index(text, "]")
+	for _, word := range ptr {
+		if i != -1 && strings.Index(text, word) >= i {
+			return true
+		}
+	}
+	return false
+}
+
 func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
 	isDialog := msg.PeerId > 2e9
 	peerId := msg.PeerId
@@ -154,11 +171,11 @@ func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
 		bot.maxPeerId = peerId
 	}
 
-	if msg.PeerId == 2000000004 && bot.env == "production" {
+	if msg.PeerId == DevChatId && bot.env == "production" {
 		return
 	}
 
-	if msg.PeerId != 2000000004 && bot.env != "production" {
+	if msg.PeerId != DevChatId && bot.env != "production" {
 		return
 	}
 
@@ -210,7 +227,9 @@ Total questions: %d (%d)
 Flood control: %d
 Dialog count: %d
 Games count: %d
+Top count: %d
 Start at: %s
+%s
 `,
 				bot.msgCount,
 				bot.totalQuestionCount,
@@ -218,9 +237,23 @@ Start at: %s
 				bot.floodCount,
 				bot.maxPeerId-2e9,
 				bot.totalGameCount,
-				bot.startTime.Format("Mon Jan _2 15:04:05")))
+				len(bot.top.data),
+				bot.startTime.Format("Mon Jan _2 15:04:05"),
+				bot.top.GetFastUsers()))
 		} else if bot.IsTopMessage(trimAndLower(msg.Text)) {
 			bot.Say(peerId, bot.GetTopString())
+		} else if bot.IsCommand(msg.Text, "CLEAR") && msg.FromId == INUserId {
+			cl := strings.Index(msg.Text, "CLEAR")
+			if cl != -1 {
+				dig := strings.TrimSpace(string([]rune(msg.Text)[cl+5:]))
+				userId, err := strconv.Atoi(dig)
+				if err == nil {
+					bot.top.Clear(userId)
+					bot.Say(peerId, "DONE")
+				} else {
+					bot.Say(peerId, err.Error())
+				}
+			}
 		} else {
 			bot.Say(peerId, bot.GetHelpMessage())
 		}
@@ -288,9 +321,9 @@ func (bot *Bot) SayNoKbd(peerId int, message string) {
 		}))
 		if r.Err != nil {
 			bot.logger.Println(r.Err.Error())
-		}
-		if strings.Index(r.Err.Error(), "Flood control") != -1 {
-			bot.floodCount++
+			if strings.Index(r.Err.Error(), "Flood control") != -1 {
+				bot.floodCount++
+			}
 		}
 	}()
 }

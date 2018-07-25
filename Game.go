@@ -34,6 +34,8 @@ type Game struct {
 
 	onQuestionGot func()
 	onQuestion    func()
+
+	generateQuestionTime time.Time
 }
 
 func GetNewGame(peerId int, lp *QuestionPoll, top *Top, up *UserPoll, logger *log.Logger, name string) *Game {
@@ -54,7 +56,7 @@ func (game *Game) onMessage(userId int, text string) {
 	game.ignoredQuestion = 0
 	text = trimAndLower(text)
 
-	godMod := userId == 19039187 && text == "да этого никто не знает"
+	godMod := userId == INUserId && text == "да этого никто не знает"
 
 	if text == game.question.Answer || godMod || DistanceForStrings([]rune(text), []rune(game.question.Answer)) == 1 {
 		game.onQuestionGot()
@@ -62,8 +64,13 @@ func (game *Game) onMessage(userId int, text string) {
 		if game.lastWinUserId != userId {
 			game.winCount = 0
 			game.lastWinUserId = userId
+		} else {
+			if time.Now().Sub(game.generateQuestionTime) < 5*time.Second {
+				game.top.FastUser(userId)
+			}
 		}
 		game.winCount++
+
 		game.NewQuestion(game.getCongratulationText(userId, game.top.Inc(userId), text == game.question.Answer) + "\n\n")
 	}
 }
@@ -85,6 +92,7 @@ func (game *Game) onTimeout() {
 }
 func (game *Game) NewQuestion(prefix string) {
 	game.onQuestion()
+	game.generateQuestionTime = time.Now()
 	game.questionWaitTime = 0
 	game.wasMessageAfterQuestion = false
 	game.question = game.db.GetQuestion()
