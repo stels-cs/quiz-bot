@@ -14,6 +14,8 @@ import (
 const ApiVersion = "5.75"
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
+
 	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile|log.LUTC)
 	rand.Seed(time.Now().UnixNano())
 

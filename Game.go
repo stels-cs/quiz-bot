@@ -96,7 +96,7 @@ func (game *Game) NewQuestion(prefix string) {
 	game.questionWaitTime = 0
 	game.wasMessageAfterQuestion = false
 	game.question = game.db.GetQuestion()
-	game.onSay(prefix + game.question.Text + "\n" + game.getAnswerView())
+	game.onSay(prefix + game.question.GetBuzzyText() + "\n" + game.getAnswerView())
 	if game.timer == nil {
 		game.timer = time.NewTimer(10 * time.Second)
 	} else {

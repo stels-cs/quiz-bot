@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"math/rand"
 	"os"
-	"bufio"
 	"strings"
 )
 
@@ -18,12 +18,11 @@ type QuestionPoll struct {
 
 func (p *QuestionPoll) GetQuestion() *Question {
 	if len(p.List) > 0 {
-		return &p.List[ rand.Intn(len(p.List)) ]
+		return &p.List[rand.Intn(len(p.List))]
 	} else {
-		return &Question{ "No question was loaded", "fuck" }
+		return &Question{"No question was loaded", "fuck"}
 	}
 }
-
 
 func (p *QuestionPoll) LoadFromFile(fName string) error {
 	file, err := os.Open(fName)
@@ -36,7 +35,7 @@ func (p *QuestionPoll) LoadFromFile(fName string) error {
 	for scanner.Scan() {
 		str := strings.Split(scanner.Text(), "|")
 		if len(str) == 2 {
-			p.List = append( p.List, Question{ str[0], trimAndLower(str[1]) } )
+			p.List = append(p.List, Question{str[0], trimAndLower(str[1])})
 		}
 	}
 
@@ -45,4 +44,18 @@ func (p *QuestionPoll) LoadFromFile(fName string) error {
 	}
 
 	return nil
+}
+
+func (q *Question) GetBuzzyText() string {
+	n := rand.Intn(101)
+	if n > 0 && n < 33 {
+		return q.Text
+	} else if n >= 33 && n < 55 {
+		return strings.Replace(q.Text, "е", "e", 4)
+	} else if n >= 55 && n < 66 {
+		return strings.Replace(q.Text, "а", "a", 4)
+	} else {
+		return strings.Replace(q.Text, "о", "o", 4)
+	}
+
 }
