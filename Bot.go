@@ -243,9 +243,10 @@ Start at: %s
 		} else if bot.IsTopMessage(trimAndLower(msg.Text)) {
 			bot.Say(peerId, bot.GetTopString())
 		} else if bot.IsCommand(msg.Text, "CLEAR") && msg.FromId == INUserId {
-			cl := strings.Index(msg.Text, "CLEAR")
+			str := msg.Text
+			cl := strings.Index(str, "CLEAR")
 			if cl != -1 {
-				dig := strings.TrimSpace(string([]rune(msg.Text)[cl+5:]))
+				dig := strings.TrimSpace(str[cl+5:])
 				userId, err := strconv.Atoi(dig)
 				if err == nil {
 					bot.top.Clear(userId)
