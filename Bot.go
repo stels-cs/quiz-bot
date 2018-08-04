@@ -30,22 +30,22 @@ const DevChatId = 2000000004
 const INUserId = 19039187
 
 type Bot struct {
-	logger         *log.Logger
-	MyId           int
-	Games          map[int]*Game
-	db             *QuestionPoll
-	top            *Top
-	userPoll       *UserPoll
-	stopMutex      *sync.Mutex
-	stop           chan bool
-	captcha        map[int]bool
-	deleteGameChan chan int
-	TestMode       bool
-	queue          *VkApi.RequestQueue
-	lastLsId       int
-	screenName     string
-	groupId        int
-	env            string
+	logger             *log.Logger
+	MyId               int
+	Games              map[int]*Game
+	db                 *QuestionPoll
+	top                *Top
+	userPoll           *UserPoll
+	stopMutex          *sync.Mutex
+	stop               chan bool
+	disabledStopButton map[int]bool
+	deleteGameChan     chan int
+	TestMode           bool
+	queue              *VkApi.RequestQueue
+	lastLsId           int
+	screenName         string
+	groupId            int
+	env                string
 
 	maxPeerId          int
 	msgCount           int
@@ -58,22 +58,22 @@ type Bot struct {
 
 func GetNewBot(queue *VkApi.RequestQueue, logger *log.Logger, poll *QuestionPoll, top *Top, up *UserPoll, name string, id int, enviroment string) Bot {
 	b := Bot{
-		logger:         logger,
-		Games:          map[int]*Game{},
-		db:             poll,
-		top:            top,
-		userPoll:       up,
-		stopMutex:      &sync.Mutex{},
-		stop:           make(chan bool, 1),
-		deleteGameChan: make(chan int, 10),
-		captcha:        map[int]bool{},
-		queue:          queue,
-		screenName:     name,
-		groupId:        id,
-		env:            enviroment,
-		startTime:      time.Now(),
-		maxPeerId:      2e9,
-		msgCount:       0,
+		logger:             logger,
+		Games:              map[int]*Game{},
+		db:                 poll,
+		top:                top,
+		userPoll:           up,
+		stopMutex:          &sync.Mutex{},
+		stop:               make(chan bool, 1),
+		deleteGameChan:     make(chan int, 10),
+		disabledStopButton: map[int]bool{},
+		queue:              queue,
+		screenName:         name,
+		groupId:            id,
+		env:                enviroment,
+		startTime:          time.Now(),
+		maxPeerId:          2e9,
+		msgCount:           0,
 	}
 	return b
 }
@@ -124,6 +124,20 @@ func (bot *Bot) IsStartMessage(text string) bool {
 
 func (bot *Bot) IsStopMessage(text string) bool {
 	ptr := []string{stopGameCommand, "stop", "стоп", "stop", "pfrjyxbnm buhe"}
+	if strings.Index(text, "[") != 0 {
+		return false
+	}
+	i := strings.Index(text, "]")
+	for _, word := range ptr {
+		if i != -1 && strings.Index(text, word) >= i {
+			return true
+		}
+	}
+	return false
+}
+
+func (bot *Bot) IsDisableStopBtn(text string) bool {
+	ptr := []string{"disabled_stop_btn"}
 	if strings.Index(text, "[") != 0 {
 		return false
 	}
@@ -192,12 +206,24 @@ func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
 	}
 
 	if bot.IsMeMention(trimAndLower(msg.Text)) {
-		if bot.IsStartMessage(trimAndLower(msg.Text)) {
+		if bot.IsDisableStopBtn(msg.Text) {
+			tag := strconv.Itoa(msg.FromId*3 + 10000)
+			if strings.Index(msg.Text, tag) != -1 {
+				bot.disabledStopButton[msg.PeerId] = true
+				bot.Say(peerId, "stop btn disabled")
+			} else {
+				bot.Say(peerId, "invalid key")
+			}
+		} else if bot.IsStartMessage(trimAndLower(msg.Text)) {
 			if _, ok := bot.Games[peerId]; ok == false {
 				game := GetNewGame(peerId, bot.db, bot.top, bot.userPoll, bot.logger, bot.screenName)
 				bot.Games[peerId] = game
 				game.onSay = func(msg string) {
-					bot.SayStopKbd(peerId, msg)
+					if bot.disabledStopButton[peerId] {
+						bot.SayNoKbd(peerId, msg)
+					} else {
+						bot.SayStopKbd(peerId, msg)
+					}
 				}
 				game.onEnd = func(msg string) {
 					bot.Say(peerId, msg)
@@ -303,7 +329,6 @@ func (bot *Bot) Say(peerId int, message string) {
 
 func (bot *Bot) SayStopKbd(peerId int, message string) {
 	go func() {
-
 		keyboard, err := GetStopKbd()
 		if err != nil {
 			bot.logger.Println(err)
