@@ -107,7 +107,7 @@ func (top *Top) Clear(userId int) {
 	top.writeMutex.Unlock()
 }
 
-func insertIntoRating(arr *[10][2]int, startAt int, rating int, id int) {
+func insertIntoRating(arr *[20][2]int, startAt int, rating int, id int) {
 	for i := 8; i >= startAt; i-- {
 		arr[i+1][0] = arr[i][0]
 		arr[i+1][1] = arr[i][1]
@@ -117,8 +117,18 @@ func insertIntoRating(arr *[10][2]int, startAt int, rating int, id int) {
 	arr[startAt][1] = id
 }
 
-func (top *Top) GetTop10() [10][2]int {
-	list := [10][2]int{
+func (top *Top) GetTop10() [20][2]int {
+	list := [20][2]int{
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
+		{0, 0},
 		{0, 0},
 		{0, 0},
 		{0, 0},
@@ -132,8 +142,8 @@ func (top *Top) GetTop10() [10][2]int {
 	}
 
 	for userId, rating := range top.data {
-		if rating > list[9][0] {
-			for i := 0; i < 10; i++ {
+		if rating > list[19][0] {
+			for i := 0; i < 20; i++ {
 				if list[i][0] < rating {
 					insertIntoRating(&list, i, rating, userId)
 					break

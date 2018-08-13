@@ -58,14 +58,14 @@ func (game *Game) onMessage(userId int, text string) {
 
 	godMod := userId == INUserId && text == "да этого никто не знает"
 
-	if text == game.question.Answer || godMod || DistanceForStrings([]rune(text), []rune(game.question.Answer)) == 1 {
+	if text == game.question.Answer || godMod {
 		game.onQuestionGot()
 		game.timer.Stop()
 		if game.lastWinUserId != userId {
 			game.winCount = 0
 			game.lastWinUserId = userId
 		} else {
-			if time.Now().Sub(game.generateQuestionTime) < 5*time.Second {
+			if time.Now().Sub(game.generateQuestionTime) <= 1*time.Second {
 				game.top.FastUser(userId)
 			}
 		}

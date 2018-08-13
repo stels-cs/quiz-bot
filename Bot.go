@@ -205,6 +205,11 @@ func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
 		return
 	}
 
+	if msg.FromId < 0 {
+		//Это другой бот
+		return
+	}
+
 	if bot.IsMeMention(trimAndLower(msg.Text)) {
 		if bot.IsDisableStopBtn(msg.Text) {
 			tag := strconv.Itoa(msg.FromId*3 + 10000)
@@ -238,13 +243,11 @@ func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
 					game.Start()
 					bot.deleteGameChan <- game.peerId
 				}()
-				bot.logger.Printf(fmt.Sprintf("Start game by id%d", peerId))
 				bot.totalGameCount++
 			}
 		} else if bot.IsStopMessage(trimAndLower(msg.Text)) {
 			if game, ok := bot.Games[peerId]; ok && game != nil {
 				game.Stop(true)
-				bot.logger.Printf(fmt.Sprintf("Stop game by id%d", peerId))
 			}
 		} else if strings.Index(trimAndLower(msg.Text), "bstat") != -1 {
 			bot.Say(peerId, fmt.Sprintf(`Stat:
@@ -254,6 +257,7 @@ Flood control: %d
 Dialog count: %d
 Games count: %d
 Top count: %d
+Online games: %d
 Start at: %s
 %s
 `,
@@ -264,6 +268,7 @@ Start at: %s
 				bot.maxPeerId-2e9,
 				bot.totalGameCount,
 				len(bot.top.data),
+				len(bot.Games),
 				bot.startTime.Format("Mon Jan _2 15:04:05"),
 				bot.top.GetFastUsers()))
 		} else if bot.IsTopMessage(trimAndLower(msg.Text)) {
@@ -356,6 +361,11 @@ func (bot *Bot) SayNoKbd(peerId int, message string) {
 
 func (bot *Bot) Start() error {
 	go bot.queue.Start()
+
+	if bot.env != "production" {
+		bot.SayNoKbd(DevChatId, "DEV started")
+	}
+
 	for {
 		select {
 		case <-bot.stop:
@@ -409,7 +419,7 @@ func (bot *Bot) GetTopString() string {
 
 	users := bot.userPoll.Get(uIds)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
 		if top[i][1] > 0 {
 			str += fmt.Sprintf(
 				"%d %s – @id%d (%s %s)\n",
