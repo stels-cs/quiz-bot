@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -281,6 +282,9 @@ func main() {
 		text += "\nПравильных ответов: " + idsToString(stat.GetTopLine(DoneQuestions))
 		text += "\nДиалогов: " + idsToString(stat.GetTopLine(DialogsCount))
 		text += "\nПользователей: " + idsToString(stat.GetTopLine(UserInTopCount))
+		mutex.Lock()
+		text += "\nОнлайн: " + strconv.Itoa(len(Games))
+		mutex.Unlock()
 
 		return SimpleMessageResponse(text)
 	})
