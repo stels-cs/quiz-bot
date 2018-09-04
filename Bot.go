@@ -7,7 +7,6 @@ import (
 	"log"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -21,6 +20,11 @@ const helpMessageTmp = `Я – бот для игры в квиз.
 @%s %s
 @%s %s
 `
+
+const directMessage = `Я – бот для игры в квиз.
+Как играть прочитай вот тут: vk.com/@vikobot-bot
+`
+
 const startGameCommand = `начать игру`
 const stopGameCommand = `закончить игру`
 const topCommand = `рейтинг`
@@ -31,16 +35,13 @@ const INUserId = 19039187
 
 type Bot struct {
 	logger             *log.Logger
-	MyId               int
 	Games              map[int]*Game
 	db                 *QuestionPoll
 	top                *Top
 	userPoll           *UserPoll
-	stopMutex          *sync.Mutex
 	stop               chan bool
 	disabledStopButton map[int]bool
 	deleteGameChan     chan int
-	TestMode           bool
 	queue              *VkApi.RequestQueue
 	lastLsId           int
 	screenName         string
@@ -56,14 +57,13 @@ type Bot struct {
 	startTime          time.Time
 }
 
-func GetNewBot(queue *VkApi.RequestQueue, logger *log.Logger, poll *QuestionPoll, top *Top, up *UserPoll, name string, id int, enviroment string) Bot {
-	b := Bot{
+func GetNewBot(queue *VkApi.RequestQueue, logger *log.Logger, poll *QuestionPoll, top *Top, up *UserPoll, name string, id int, enviroment string) *Bot {
+	b := &Bot{
 		logger:             logger,
 		Games:              map[int]*Game{},
 		db:                 poll,
 		top:                top,
 		userPoll:           up,
-		stopMutex:          &sync.Mutex{},
 		stop:               make(chan bool, 1),
 		deleteGameChan:     make(chan int, 10),
 		disabledStopButton: map[int]bool{},
@@ -221,7 +221,7 @@ func (bot *Bot) NewMessage(msg *VkApi.CallbackMessage) {
 			}
 		} else if bot.IsStartMessage(trimAndLower(msg.Text)) {
 			if _, ok := bot.Games[peerId]; ok == false {
-				game := GetNewGame(peerId, bot.db, bot.top, bot.userPoll, bot.logger, bot.screenName)
+				game := GetNewGame(peerId, bot.db, bot.userPoll, bot.logger)
 				bot.Games[peerId] = game
 				game.onSay = func(msg string) {
 					if bot.disabledStopButton[peerId] {

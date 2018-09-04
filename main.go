@@ -1,148 +1,345 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"github.com/stels-cs/vk-api-tools"
 	"log"
 	"math/rand"
 	"os"
 	"os/signal"
-	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
-const ApiVersion = "5.75"
+var defaultLogger *log.Logger
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+	defaultLogger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile|log.LUTC)
+}
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
-
-	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile|log.LUTC)
-	rand.Seed(time.Now().UnixNano())
 
 	apiToken := env("VK_TOKEN", "")
-
-	enviroment := env("ENV", "debug")
 
 	if apiToken == "" {
 		panic("No token passed, pass token in VK_TOKEN environment")
 	}
 
-	qp := QuestionPoll{}
-	err := qp.LoadFromFile(env("QUESTION_FILE", "quiz.txt"))
+	environment := env("ENV", "debug")
+
+	questionPoll := QuestionPoll{}
+	err := questionPoll.LoadFromFile(env("QUESTION_FILE", "quiz.txt"))
 	if err != nil {
 		panic(err.Error())
 	}
 
-	top := GetTop(env("TOP_FILE", "top.txt"), logger)
-	err = top.Load()
+	dailyTop, err := GetUserState(true, "daily_top.bolt")
 	if err != nil {
-		if _, ok := err.(*os.PathError); !ok {
-			panic(err.Error())
-		}
-		print("Top file no exists creating... ")
-		err := top.Save()
-		if err != nil {
-			panic(err.Error())
-		} else {
-			print("ok\n")
-		}
-	}
-
-	logger.Printf("Starting bot with token: " + trimToken(apiToken))
-
-	signalChan := make(chan os.Signal, 1)
-
-	api := VkApi.CreateApi(apiToken, ApiVersion, VkApi.GetHttpTransport(), 30)
-	group, err := api.Call("groups.getById", VkApi.P{"fields": "screen_name"})
-	if err != nil {
-		logger.Println("Called groups.getById, but got error, perhaps bad token, exiting....")
 		panic(err)
 	}
-	groupId := group.QIntDef("0.id", 0)
-	groupName := group.QStringDef("0.name", "DELETED")
-	groupScreen := group.QStringDef("0.screen_name", "club")
-	if groupId == 0 {
-		logger.Println("Called groups.getById, but got no group, perhaps api changes exiting....")
-		panic("Cant get group info by call groups.getById with token: " + trimToken(apiToken))
+
+	dailyTopCraetedTime := time.Now()
+
+	globalTop, err := GetUserState(true, "global_top.bolt")
+
+	if err != nil {
+		panic(err)
 	}
 
-	res, err := api.Call("groups.setLongPollSettings", VkApi.P{
-		"group_id":               strconv.Itoa(groupId),
-		"enabled":                "1",
-		"api_version":            "5.90",
-		"message_new":            "1",
-		"message_reply":          "0",
-		"photo_new":              "0",
-		"audio_new":              "0",
-		"video_new":              "0",
-		"wall_reply_new":         "0",
-		"wall_reply_edit":        "0",
-		"wall_reply_delete":      "0",
-		"wall_reply_restore":     "0",
-		"wall_post_new":          "0",
-		"board_post_new":         "0",
-		"board_post_edit":        "0",
-		"board_post_restore":     "0",
-		"board_post_delete":      "0",
-		"photo_comment_new":      "0",
-		"photo_comment_edit":     "0",
-		"photo_comment_delete":   "0",
-		"photo_comment_restore":  "0",
-		"video_comment_new":      "0",
-		"video_comment_edit":     "0",
-		"video_comment_delete":   "0",
-		"video_comment_restore":  "0",
-		"market_comment_new":     "0",
-		"market_comment_edit":    "0",
-		"market_comment_delete":  "0",
-		"market_comment_restore": "0",
-		"poll_vote_new":          "0",
-		"group_join":             "0",
-		"group_leave":            "0",
-		"group_change_settings":  "0",
-		"group_change_photo":     "0",
-		"group_officers_edit":    "0",
-		"message_allow":          "1",
-		"message_deny":           "1",
-		"wall_repost":            "0",
-		"user_block":             "0",
-		"user_unblock":           "0",
-		"messages_edit":          "0",
-		"message_typing_state":   "0",
+	var ip = flag.Int("copyTop", 0, "copy old top, to bold")
+	flag.Parse()
+
+	if ip != nil && *ip == 1 {
+		top := GetTop(env("TOP_FILE", "top.txt"), defaultLogger)
+		err = top.Load()
+		if err != nil {
+			if _, ok := err.(*os.PathError); !ok {
+				panic(err.Error())
+			}
+			print("Top file no exists creating... ")
+			err := top.Save()
+			if err != nil {
+				panic(err.Error())
+			} else {
+				print("ok\n")
+			}
+		}
+		defaultLogger.Printf("Start coping %d items\n", len(top.data))
+		dailyTop.DropTop()
+		globalTop.DropTop()
+		for userId, score := range top.data {
+			dailyTop.AddScoreValue(userId, score)
+			globalTop.AddScoreValue(userId, score)
+		}
+		defaultLogger.Printf("Done\n")
+		globalTop.SaveForce()
+		dailyTop.SaveForce()
+		return
+	}
+
+	saveTimer := time.NewTicker(20 * time.Minute)
+	go func() {
+		for {
+			<-saveTimer.C
+			globalTop.Save()
+			globalTop.Clear()
+
+			dailyTop.Save()
+			dailyTop.Clear()
+		}
+	}()
+
+	stat, err := GetStatistic("statistic.bolt")
+
+	if err != nil {
+		panic(err)
+	}
+
+	defaultLogger.Printf("Starting bot with token: " + trimToken(apiToken))
+
+	core := CreateBotCore(apiToken)
+	core.Logger = defaultLogger
+
+	if err := core.bootstrap(); err != nil {
+		panic(err)
+	}
+
+	defaultLogger.Println("Done! Bot started at group: " + core.GetGroupView())
+
+	Games := map[int]*Game{}
+
+	mutex := sync.Mutex{}
+
+	core.BeforeMessage(func(msg *VkApi.CallbackMessage) bool {
+		if environment == "debug" {
+			if msg.PeerId != 2000000001 {
+				return false
+			}
+		}
+		return true
 	})
 
-	if err != nil {
-		logger.Println("Cant call groups.setLongPollSettings, perhaps token without manage rights")
-		panic(err)
+	core.BeforeMessage(func(msg *VkApi.CallbackMessage) bool {
+		if dailyTopCraetedTime.Day() != time.Now().Day() {
+			dailyTop.DropTop()
+			dailyTop.SaveForce()
+
+			globalTop.Save()
+			globalTop.Clear()
+
+			stat.PutUsersInTop(globalTop.GetUserSafety(globalTop.tail).GetPlace())
+		}
+		return true
+	})
+
+	core.BeforeMessage(func(msg *VkApi.CallbackMessage) bool {
+		stat.ReceiveMessage()
+		if msg.FromChat() {
+			stat.PutDialogCount(msg.PeerId - 2e9)
+		}
+		return true
+	})
+
+	core.OnSendMessage(func() {
+		stat.SendMessage()
+	})
+
+	//core.OnMessage().WithWords([]string{"show_peer"}).Do(func(msg *VkApi.CallbackMessage) *BotResponse {
+	//	return SimpleMessageResponse(strconv.Itoa(msg.PeerId))
+	//})
+
+	core.OnMessage().
+		FromChat().
+		NoGroup().
+		WithMention().
+		WithWords([]string{startGameCommand, "го", "go", "играть", "начать", "yfxfnm buhe"}).
+		Do(func(msg *VkApi.CallbackMessage) *BotResponse {
+			mutex.Lock()
+			defer mutex.Unlock()
+			if _, ok := Games[msg.PeerId]; ok == false {
+				game := GetNewGame(msg.PeerId, &questionPoll, core.userDB, defaultLogger)
+				Games[msg.PeerId] = game
+				game.onUserGotPoint = func(userId int) int {
+					dailyTop.AddScore(userId)
+					globalTop.AddScore(userId)
+					return dailyTop.GetUserSafety(userId).GetScore()
+				}
+				game.onSay = func(text string) {
+					core.SendMessage(TextMessage(text).SetKeyboard(GetStopKeyboad()), msg.PeerId)
+				}
+				game.onEnd = func(text string) {
+					core.SendMessage(TextMessage(text).SetKeyboard(GetDefaultkeyboad()), msg.PeerId)
+				}
+				game.onQuestionGot = func() {
+					stat.DoneQuestions()
+				}
+				game.onQuestion = func() {
+					stat.StartQuestion()
+				}
+				go func() {
+					game.Start()
+					mutex.Lock()
+					defer mutex.Unlock()
+					delete(Games, msg.PeerId)
+				}()
+
+				stat.StartGame()
+			}
+			return NoReactionResponse()
+		})
+
+	core.OnMessage().
+		NoGroup().
+		FromChat().
+		WithMention().
+		WithWords([]string{stopGameCommand, "stop", "стоп", "stop", "pfrjyxbnm buhe"}).
+		Do(func(msg *VkApi.CallbackMessage) *BotResponse {
+			if game, ok := Games[msg.PeerId]; ok && game != nil {
+				game.Stop(true)
+				return NoReactionResponse()
+			} else {
+				return nil
+			}
+		})
+
+	core.OnMessage().
+		FromChat().
+		WithMention().
+		WithWords([]string{topCommand, "победители", "htqnbyu"}).
+		Do(func(msg *VkApi.CallbackMessage) *BotResponse {
+			var user *UserItem
+			var top []*UserItem
+
+			str := ""
+
+			if strings.Index(msg.Text, "all") != -1 {
+				user, top = globalTop.GetTop(msg.FromId, 20)
+				str += "Глобальный рейтинг, за все время:\n"
+			} else {
+				user, top = dailyTop.GetTop(msg.FromId, 20)
+			}
+
+			var uIds []int
+			for _, user := range top {
+				uIds = append(uIds, user.Id)
+			}
+			uIds = append(uIds, user.Id)
+			vkUsers := core.userDB.Get(uIds)
+			currentUserInTop := false
+			for _, userItem := range top {
+				str += fmt.Sprintf(
+					"#%d @id%d (%s %s) - %d %s",
+					userItem.GetPlace(),
+					vkUsers[userItem.Id].Id,
+					vkUsers[userItem.Id].FirstName,
+					vkUsers[userItem.Id].LastName,
+					userItem.GetScore(),
+					transChoose(userItem.GetScore(), "балл", "балла", "баллов"),
+				)
+				if userItem.Id == msg.FromId {
+					str += " *\n"
+					currentUserInTop = true
+				} else {
+					str += "\n"
+				}
+			}
+
+			if !currentUserInTop {
+				str += "\n"
+				str += fmt.Sprintf(
+					"#%d %s %s - %d %s",
+					user.GetPlace(),
+					vkUsers[user.Id].FirstName,
+					vkUsers[user.Id].LastName,
+					user.GetScore(),
+					transChoose(user.GetScore(), "балл", "балла", "баллов"),
+				)
+			}
+
+			if str == "" {
+				str = "Никто еще ничего не угадывал (("
+			} else {
+				if strings.Index(msg.Text, "all") == -1 {
+					str += "\nРейтинг обнуляется каждый день в 00:00 по Москве"
+				}
+			}
+
+			return SimpleMessageResponse(str).SetKeyboard(GetDefaultkeyboad())
+		})
+
+	core.OnMessage().WithMention().WithWords([]string{"bstat"}).Do(func(msg *VkApi.CallbackMessage) *BotResponse {
+		text := "Статистика за последние 7 дней:\n"
+
+		text += "\nВходящий сообщений: " + idsToString(stat.GetTopLine(ReceiveMessages))
+		text += "\nИсходящий сообщений: " + idsToString(stat.GetTopLine(SendMessage))
+		text += "\nИгр: " + idsToString(stat.GetTopLine(StartGames))
+		text += "\nВопросов: " + idsToString(stat.GetTopLine(StartQuestions))
+		text += "\nПравильных ответов: " + idsToString(stat.GetTopLine(DoneQuestions))
+		text += "\nДиалогов: " + idsToString(stat.GetTopLine(DialogsCount))
+		text += "\nПользователей: " + idsToString(stat.GetTopLine(UserInTopCount))
+
+		return SimpleMessageResponse(text)
+	})
+
+	core.OnMessage().WithMention().Do(func(msg *VkApi.CallbackMessage) *BotResponse {
+		return SimpleMessageResponse(fmt.Sprintf(helpMessageTmp,
+			core.groupScreenName, startGameCommand,
+			core.groupScreenName, stopGameCommand,
+			core.groupScreenName, topCommand,
+			core.groupScreenName, helpCommand,
+		)).SetKeyboard(GetDefaultkeyboad())
+	})
+
+	core.OnMessage().FromChat().Do(func(msg *VkApi.CallbackMessage) *BotResponse {
+		if game, ok := Games[msg.PeerId]; ok {
+			game.Message(msg.FromId, msg.Text)
+		}
+		return nil
+	})
+
+	core.OnMessage().FromUser().NoChat().Do(func(msg *VkApi.CallbackMessage) *BotResponse {
+		return SimpleMessageResponse(directMessage)
+	})
+
+	oldTsValue, err := stat.GetTsValue()
+
+	if err == nil {
+		core.SetOldTsValue(oldTsValue)
 	}
 
-	if res.IntDef(0) != 1 {
-		logger.Println("Cant call groups.setLongPollSettings (result is not 1), perhaps token without manage rights")
-		panic("Cant call groups.setLongPollSettings^ return: " + res.String())
-	}
-
-	logger.Println("Long poll settings setted")
-
-	queue := VkApi.GetRequestQueue(api, 20)
-
-	logger.Println("Starting bot at group: " + groupName + " #" + strconv.Itoa(groupId) + " " + groupScreen)
-	lp := VkApi.GetBotLongPollServer(api, logger)
-	userPoll := GetPoll(api, logger)
-	bot := GetNewBot(queue, logger, &qp, &top, &userPoll, groupScreen, groupId, enviroment)
-	lp.SetListener(bot.onEvent)
-
-	services := GetServicePoll(logger)
-	services.Push(&bot)
-	services.Push(lp)
-
+	services := GetServicePoll(defaultLogger)
+	services.Push(core)
 	services.RunAll()
 
+	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT)
 	signal.Notify(signalChan, syscall.SIGUSR1)
 	sig := <-signalChan
-	logger.Println(sig.String())
-	logger.Println("Stoping...")
-	top.SaveWithLock()
+	defaultLogger.Println(sig.String())
+	defaultLogger.Println("Stopping...")
+
+	saveTimer.Stop()
+	dailyTop.SaveForce()
+	globalTop.SaveForce()
+
+	stat.PutUsersInTop(globalTop.GetUserSafety(globalTop.tail).GetPlace())
+
+	mutex.Lock()
+
+	msg := TextMessage("Мы останавливаем бота чтобы обновить его, он вернется через 1 минуту.").SetKeyboard(GetDefaultkeyboad())
+	for peerId := range Games {
+		core.SendMessage(msg, peerId)
+	}
+
+	mutex.Unlock()
+
 	<-services.StopAll()
-	logger.Println("Done!")
+
+	stat.SetTsValue(core.GetTsValue())
+
+	defaultLogger.Println("Done!")
 }

@@ -22,15 +22,15 @@ type Game struct {
 	message       chan *GameMessage
 	stop          chan bool
 	timer         *time.Timer
-	top           *Top
 	lastWinUserId int
 	winCount      int
 	userPoll      *UserPoll
 	logger        *log.Logger
 	name          string
 
-	onSay func(msg string)
-	onEnd func(msg string)
+	onSay          func(msg string)
+	onEnd          func(msg string)
+	onUserGotPoint func(userId int) int
 
 	onQuestionGot func()
 	onQuestion    func()
@@ -38,16 +38,14 @@ type Game struct {
 	generateQuestionTime time.Time
 }
 
-func GetNewGame(peerId int, lp *QuestionPoll, top *Top, up *UserPoll, logger *log.Logger, name string) *Game {
+func GetNewGame(peerId int, lp *QuestionPoll, up *UserPoll, logger *log.Logger) *Game {
 	return &Game{
 		peerId:   peerId,
 		message:  make(chan *GameMessage, 100),
 		stop:     make(chan bool, 10),
 		db:       lp,
-		top:      top,
 		userPoll: up,
 		logger:   logger,
-		name:     name,
 	}
 }
 
@@ -64,14 +62,10 @@ func (game *Game) onMessage(userId int, text string) {
 		if game.lastWinUserId != userId {
 			game.winCount = 0
 			game.lastWinUserId = userId
-		} else {
-			if time.Now().Sub(game.generateQuestionTime) <= 1*time.Second {
-				game.top.FastUser(userId)
-			}
 		}
 		game.winCount++
 
-		game.NewQuestion(game.getCongratulationText(userId, game.top.Inc(userId), text == game.question.Answer) + "\n\n")
+		game.NewQuestion(game.getCongratulationText(userId, game.onUserGotPoint(userId), text == game.question.Answer) + "\n\n")
 	}
 }
 

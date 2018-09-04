@@ -52,6 +52,15 @@ type Keyboard struct {
 	Buttons [][]*Button `json:"buttons"`
 }
 
+func GetDefaultkeyboad() *Keyboard {
+	kbd, err := GetDefaultKbd()
+	if err != nil {
+		return nil
+	} else {
+		return kbd
+	}
+}
+
 func GetDefaultKbd() (*Keyboard, error) {
 	start, err := GetPrimary("Начать игру", startGameCommand)
 	if err != nil {
@@ -80,6 +89,15 @@ func GetDefaultKbd() (*Keyboard, error) {
 		btns,
 	}
 	return &kbd, nil
+}
+
+func GetStopKeyboad() *Keyboard {
+	kbd, err := GetStopKbd()
+	if err != nil {
+		return nil
+	} else {
+		return kbd
+	}
 }
 
 func GetStopKbd() (*Keyboard, error) {

@@ -1,14 +1,56 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"io/ioutil"
-	"net/http"
+	"github.com/boltdb/bolt"
+	"github.com/stels-cs/vk-api-tools"
 	"os"
+	"strconv"
 	"strings"
-	"time"
 )
+
+var defaultLongPollSettings = VkApi.P{
+	"api_version":            "5.80",
+	"message_new":            "1",
+	"message_reply":          "0",
+	"photo_new":              "0",
+	"audio_new":              "0",
+	"video_new":              "0",
+	"wall_reply_new":         "0",
+	"wall_reply_edit":        "0",
+	"wall_reply_delete":      "0",
+	"wall_reply_restore":     "0",
+	"wall_post_new":          "0",
+	"board_post_new":         "0",
+	"board_post_edit":        "0",
+	"board_post_restore":     "0",
+	"board_post_delete":      "0",
+	"photo_comment_new":      "0",
+	"photo_comment_edit":     "0",
+	"photo_comment_delete":   "0",
+	"photo_comment_restore":  "0",
+	"video_comment_new":      "0",
+	"video_comment_edit":     "0",
+	"video_comment_delete":   "0",
+	"video_comment_restore":  "0",
+	"market_comment_new":     "0",
+	"market_comment_edit":    "0",
+	"market_comment_delete":  "0",
+	"market_comment_restore": "0",
+	"poll_vote_new":          "0",
+	"group_join":             "0",
+	"group_leave":            "0",
+	"group_change_settings":  "0",
+	"group_change_photo":     "0",
+	"group_officers_edit":    "0",
+	"message_allow":          "0",
+	"message_deny":           "0",
+	"wall_repost":            "0",
+	"user_block":             "0",
+	"user_unblock":           "0",
+	"messages_edit":          "0",
+	"message_typing_state":   "0",
+}
 
 func ff(cond bool, t string, f string) string {
 	if cond {
@@ -41,37 +83,8 @@ func transChoose(x int, one string, two string, five string) string {
 	}
 }
 
-func inArray(haystack []string, needle string) bool {
-	for _, v := range haystack {
-		if v == needle {
-			return true
-		}
-	}
-	return false
-}
-
 func trimAndLower(str string) string {
 	return strings.TrimSpace(strings.ToLower(str))
-}
-
-func postJsonRequest(url string, request string, v interface{}) ([]byte, error) {
-	t := &http.Client{Timeout: time.Second * 300}
-	var r []byte
-	resp, err := t.Post(url, "application/json", bytes.NewBuffer([]byte(request)))
-	if err != nil {
-		return r, err
-	}
-	data, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return r, err
-	}
-	err = json.Unmarshal(data, v)
-	if err != nil {
-		return r, err
-	} else {
-		return data, nil
-	}
 }
 
 func trimToken(token string) string {
@@ -132,4 +145,92 @@ func min(a int, b int) int {
 		return b
 	}
 	return a
+}
+
+func GetInt(b *bolt.Bucket, key string) (int, error) {
+	val := b.Get([]byte(key))
+	if val != nil {
+		value, err := strconv.Atoi(string(val))
+		if err != nil {
+			return 0, err
+		}
+		return value, nil
+	} else {
+		return 0, nil
+	}
+}
+
+func PutInt(b *bolt.Bucket, key string, value int) error {
+	return b.Put([]byte(key), []byte(strconv.Itoa(value)))
+}
+
+func CreateBucked(db *bolt.DB, name string) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(name))
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func GetIntFromBucked(db *bolt.DB, bucked, key string) (int, error) {
+	var i int
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucked))
+		var err error
+		i, err = GetInt(b, key)
+		return err
+	})
+	return i, err
+}
+
+func IncIntFromBucked(db *bolt.DB, bucked, key string) (int, error) {
+	var i int
+	err := db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucked))
+		var err error
+		i, err = GetInt(b, key)
+		if err != nil {
+			return err
+		}
+		i++
+		return PutInt(b, key, i)
+	})
+	return i, err
+}
+
+func PutIntFromBucked(db *bolt.DB, bucked, key string, value int) error {
+	err := db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucked))
+		return PutInt(b, key, value)
+	})
+	return err
+}
+
+func FillStructureFromBucked(db *bolt.DB, bucked, key string, i interface{}) error {
+	return db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucked))
+		userRaw := b.Get([]byte(key))
+		if userRaw != nil {
+			err := json.Unmarshal(userRaw, i)
+			return err
+		} else {
+			return nil
+		}
+	})
+}
+
+func PutStructure(b *bolt.Bucket, key string, value interface{}) error {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return b.Put([]byte(key), raw)
+}
+
+func DeleteBucked(db *bolt.DB, name string) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		return tx.DeleteBucket([]byte(name))
+	})
 }

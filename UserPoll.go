@@ -1,17 +1,17 @@
 package main
 
 import (
+	"github.com/stels-cs/vk-api-tools"
 	"log"
 	"strconv"
-	"github.com/stels-cs/vk-api-tools"
 	"strings"
 )
 
 type User struct {
-	Id        int `json:"id"`
+	Id        int    `json:"id"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
-	Sex  int `json:"sex"`
+	Sex       int    `json:"sex"`
 }
 
 type UserPoll struct {
@@ -20,8 +20,8 @@ type UserPoll struct {
 	logger *log.Logger
 }
 
-func GetPoll(api *VkApi.Api, logger *log.Logger) UserPoll {
-	return UserPoll{map[int]User{}, api, logger}
+func GetPoll(api *VkApi.Api, logger *log.Logger) *UserPoll {
+	return &UserPoll{map[int]User{}, api, logger}
 }
 
 func (up *UserPoll) Get(userIds []int) map[int]User {
@@ -39,8 +39,8 @@ func (up *UserPoll) Get(userIds []int) map[int]User {
 	users := make([]User, 0)
 	if len(toRequest) > 0 {
 		err := up.api.Exec("users.get", VkApi.P{
-			"user_ids":idsToString(toRequest),
-			"fields":"sex",
+			"user_ids": idsToString(toRequest),
+			"fields":   "sex",
 		}, &users)
 		if err == nil {
 			for _, v := range users {
@@ -56,7 +56,7 @@ func (up *UserPoll) Get(userIds []int) map[int]User {
 }
 
 func idsToString(ids []int) string {
-	s:= make([]string, 0, len(ids))
+	s := make([]string, 0, len(ids))
 	for _, id := range ids {
 		s = append(s, strconv.Itoa(id))
 	}
