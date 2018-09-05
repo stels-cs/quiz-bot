@@ -85,7 +85,6 @@ func (game *Game) onTimeout() {
 	}
 }
 func (game *Game) NewQuestion(prefix string) {
-	game.onQuestion()
 	game.generateQuestionTime = time.Now()
 	game.questionWaitTime = 0
 	game.wasMessageAfterQuestion = false
@@ -96,6 +95,7 @@ func (game *Game) NewQuestion(prefix string) {
 	} else {
 		game.timer.Reset(10 * time.Second)
 	}
+	game.onQuestion()
 }
 func (game *Game) onUnAnswerQuestion() {
 	if game.wasMessageAfterQuestion == false {

@@ -229,6 +229,13 @@ func PutStructure(b *bolt.Bucket, key string, value interface{}) error {
 	return b.Put([]byte(key), raw)
 }
 
+func PutStructureIntoBucked(db *bolt.DB, bucked, key string, value interface{}) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucked))
+		return PutStructure(b, key, value)
+	})
+}
+
 func DeleteBucked(db *bolt.DB, name string) error {
 	return db.Update(func(tx *bolt.Tx) error {
 		return tx.DeleteBucket([]byte(name))

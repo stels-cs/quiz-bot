@@ -22,6 +22,23 @@ func init() {
 	defaultLogger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile|log.LUTC)
 }
 
+func renderTop(conTop []*UserItem, vkUsers map[int]User) string {
+	str := "\n\nТоп этой беседы:\n"
+
+	for _, userItem := range conTop {
+		str += fmt.Sprintf(
+			"#%d %s %s - %d %s",
+			userItem.GetPlace(),
+			vkUsers[userItem.Id].FirstName,
+			vkUsers[userItem.Id].LastName,
+			userItem.GetScore(),
+			transChoose(userItem.GetScore(), "балл", "балла", "баллов"),
+		)
+	}
+
+	return str
+}
+
 func main() {
 
 	apiToken := env("VK_TOKEN", "")
@@ -111,6 +128,11 @@ func main() {
 
 	defaultLogger.Println("Done! Bot started at group: " + core.GetGroupView())
 
+	conversationTop, err := GetConversationTop("conversation.bolt")
+	if err != nil {
+		panic(err)
+	}
+
 	Games := map[int]*Game{}
 
 	mutex := sync.Mutex{}
@@ -133,6 +155,8 @@ func main() {
 			globalTop.Clear()
 
 			stat.PutUsersInTop(globalTop.GetUserSafety(globalTop.tail).GetPlace())
+
+			dailyTopCraetedTime = time.Now()
 		}
 		return true
 	})
@@ -167,19 +191,44 @@ func main() {
 				game.onUserGotPoint = func(userId int) int {
 					dailyTop.AddScore(userId)
 					globalTop.AddScore(userId)
+					err := conversationTop.AddScore(msg.PeerId, userId)
+					if err != nil {
+						defaultLogger.Println(err)
+					}
 					return dailyTop.GetUserSafety(userId).GetScore()
 				}
 				game.onSay = func(text string) {
 					core.SendMessage(TextMessage(text).SetKeyboard(GetStopKeyboad()), msg.PeerId)
 				}
 				game.onEnd = func(text string) {
+
+					conTop, err := conversationTop.GetTop(msg.PeerId)
+					uIds := make([]int, 0, len(conTop))
+					if err != nil {
+						defaultLogger.Println(err)
+					} else if len(conTop) > 0 {
+						for _, u := range conTop {
+							uIds = append(uIds, u.Id)
+						}
+						vkUsers := core.userDB.Get(uIds)
+
+						text += renderTop(conTop, vkUsers)
+					}
+
 					core.SendMessage(TextMessage(text).SetKeyboard(GetDefaultkeyboad()), msg.PeerId)
+					err = conversationTop.Remove(msg.PeerId)
+					if err != nil {
+						defaultLogger.Println(err)
+					}
 				}
 				game.onQuestionGot = func() {
 					stat.DoneQuestions()
 				}
 				game.onQuestion = func() {
 					stat.StartQuestion()
+					if environment == "debug" && game.question != nil {
+						defaultLogger.Println(game.question.Answer)
+					}
 				}
 				go func() {
 					game.Start()
@@ -229,6 +278,16 @@ func main() {
 				uIds = append(uIds, user.Id)
 			}
 			uIds = append(uIds, user.Id)
+
+			conTop, err := conversationTop.GetTop(msg.PeerId)
+			if err != nil {
+				defaultLogger.Println(err)
+			} else if len(conTop) > 0 {
+				for _, u := range conTop {
+					uIds = append(uIds, u.Id)
+				}
+			}
+
 			vkUsers := core.userDB.Get(uIds)
 			currentUserInTop := false
 			for _, userItem := range top {
@@ -262,11 +321,15 @@ func main() {
 			}
 
 			if str == "" {
-				str = "Никто еще ничего не угадывал (("
+				str = "Глобальный рейтинг за текуший день пока пуст."
 			} else {
 				if strings.Index(msg.Text, "all") == -1 {
 					str += "\nРейтинг обнуляется каждый день в 00:00 по Москве"
 				}
+			}
+
+			if len(conTop) > 0 {
+				str += renderTop(conTop, vkUsers)
 			}
 
 			return SimpleMessageResponse(str).SetKeyboard(GetDefaultkeyboad())
