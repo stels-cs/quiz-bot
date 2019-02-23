@@ -105,7 +105,7 @@ func (bot *BotCore) GetName() string {
 }
 
 func (bot *BotCore) bootstrap() error {
-	api := VkApi.CreateApi(bot.token, "5.80", VkApi.GetHttpTransport(), 30)
+	api := VkApi.CreateApi(bot.token, "5.98", VkApi.GetHttpTransport(), 30)
 	bot.api = api
 
 	group, err := api.Call("groups.getById", VkApi.P{"fields": "screen_name"})
@@ -237,8 +237,9 @@ func (bot *BotCore) AfterMessage(callback AfterCallback) {
 
 func (bot *BotCore) SendMessage(message *BotMessage, peerId int) chan VkApi.RequestResult {
 	params := VkApi.P{
-		"peer_id": strconv.Itoa(peerId),
-		"message": message.Message,
+		"peer_id":   strconv.Itoa(peerId),
+		"message":   message.Message,
+		"random_id": "0",
 	}
 
 	if message.RandomId != 0 {

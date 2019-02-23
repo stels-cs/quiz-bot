@@ -27,7 +27,7 @@ func renderTop(conTop []*UserItem, vkUsers map[int]User) string {
 
 	for _, userItem := range conTop {
 		str += fmt.Sprintf(
-			"#%d %s %s - %d %s",
+			"\n#%d %s %s - %d %s",
 			userItem.GetPlace(),
 			vkUsers[userItem.Id].FirstName,
 			vkUsers[userItem.Id].LastName,
@@ -139,6 +139,9 @@ func main() {
 
 	core.BeforeMessage(func(msg *VkApi.CallbackMessage) bool {
 		if environment == "debug" {
+			//if msg.PeerId == 2000000005 {
+			defaultLogger.Printf("%d %s", msg.PeerId, msg.Text)
+			//}
 			if msg.PeerId != 2000000001 {
 				return false
 			}

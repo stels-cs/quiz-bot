@@ -10,7 +10,7 @@ import (
 )
 
 var defaultLongPollSettings = VkApi.P{
-	"api_version":            "5.80",
+	"api_version":            "5.98",
 	"message_new":            "1",
 	"message_reply":          "0",
 	"photo_new":              "0",

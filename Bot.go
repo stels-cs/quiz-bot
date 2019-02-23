@@ -306,9 +306,10 @@ func (bot *Bot) SayKBD(peerId int, message string, kdb *Keyboard) {
 		}
 
 		r := <-bot.queue.Call(VkApi.GetApiMethod("messages.send", VkApi.P{
-			"peer_id":  strconv.Itoa(peerId),
-			"message":  message,
-			"keyboard": string(rawKbd),
+			"peer_id":   strconv.Itoa(peerId),
+			"message":   message,
+			"random_id": "0",
+			"keyboard":  string(rawKbd),
 		}))
 		if r.Err != nil {
 			bot.logger.Println(r.Err.Error())
@@ -347,8 +348,9 @@ func (bot *Bot) SayStopKbd(peerId int, message string) {
 func (bot *Bot) SayNoKbd(peerId int, message string) {
 	go func() {
 		r := <-bot.queue.Call(VkApi.GetApiMethod("messages.send", VkApi.P{
-			"peer_id": strconv.Itoa(peerId),
-			"message": message,
+			"peer_id":   strconv.Itoa(peerId),
+			"message":   message,
+			"random_id": "0",
 		}))
 		if r.Err != nil {
 			bot.logger.Println(r.Err.Error())
