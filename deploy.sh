@@ -1,11 +1,11 @@
 GOOS=linux GOARCH=amd64 go build -o ./build-quiz-bot github.com/stels-cs/quiz-bot
-ssh dp@web4.vkforms.ru 'rm -rf /home/dp/quiz-bot/build-quiz-bot.old.2'
-ssh dp@web4.vkforms.ru 'mv /home/dp/quiz-bot/build-quiz-bot.old /home/dp/quiz-bot/build-quiz-bot.old.2'
-ssh dp@web4.vkforms.ru 'mv /home/dp/quiz-bot/build-quiz-bot /home/dp/quiz-bot/build-quiz-bot.old'
-scp build-quiz-bot dp@web4.vkforms.ru:/home/dp/quiz-bot/
-ssh dp@web4.vkforms.ru 'killall -s SIGUSR1 build-quiz-bot'
+ssh dp@prod 'rm -rf /bot/build-quiz-bot.old.2'
+ssh dp@prod 'mv /bot/build-quiz-bot.old /bot/build-quiz-bot.old.2'
+ssh dp@prod 'mv /bot/build-quiz-bot /bot/build-quiz-bot.old'
+scp build-quiz-bot dp@prod:/bot/
+ssh dp@prod 'killall -s SIGUSR1 build-quiz-bot'
 sleep 1
-ssh dp@web4.vkforms.ru 'ps aux | grep build-quiz-bo[t]'
+ssh dp@prod 'ps aux | grep build-quiz-bo[t]'
 sleep 1
-ssh dp@web4.vkforms.ru 'tail -100 /home/dp/quiz-bot/log.log'
-ssh dp@web4.vkforms.ru 'date'
+ssh dp@prod 'tail -100 /bot/log.log'
+ssh dp@prod 'date'
